@@ -1,0 +1,8 @@
+# binaries
+/yx
+
+# build outputs
+/dist
+
+# macOS
+.DS_Store
