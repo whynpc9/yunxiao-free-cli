@@ -1,0 +1,7 @@
+interface:
+  display_name: "Yunxiao CLI"
+  short_description: "Use the yx CLI for Yunxiao free-edition data"
+  default_prompt: "Use $yunxiao-cli to inspect Yunxiao organizations, projects, work items, and test cases with the local yx CLI."
+
+policy:
+  allow_implicit_invocation: true

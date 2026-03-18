@@ -45,6 +45,16 @@ curl -fsSL https://raw.githubusercontent.com/whynpc9/yunxiao-free-cli/main/insta
 
 脚本优先下载 GitHub Release 二进制包；如果不可用会回退到 `go install`。
 
+### 3. 作为 skill 安装
+
+如果要把本项目作为 Codex skill 安装，可使用：
+
+```bash
+npx skills add whynpc9/yunxiao-free-cli --skill yunxiao-cli
+```
+
+skill 目录位于 `yunxiao-cli/`，用于指导 agent 安装并调用本仓库提供的 `yx` CLI。
+
 ## 首次使用
 
 ```bash
