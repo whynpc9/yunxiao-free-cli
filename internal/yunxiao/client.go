@@ -12,9 +12,7 @@ import (
 	"time"
 )
 
-const (
-	defaultTimeout = 20 * time.Second
-)
+const defaultTimeout = 20 * time.Second
 
 type Client struct {
 	httpClient *http.Client
@@ -42,6 +40,84 @@ func (c *Client) ListOrganizations(ctx context.Context) ([]Organization, error) 
 	return out, nil
 }
 
+func (c *Client) SearchOrganizationMembers(ctx context.Context, organizationID string, req SearchMembersRequest) ([]OrganizationMember, error) {
+	path := fmt.Sprintf("/oapi/v1/platform/organizations/%s/members:search", url.PathEscape(organizationID))
+	var out []OrganizationMember
+	if err := c.doJSON(ctx, http.MethodPost, path, nil, req, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) SearchProjects(ctx context.Context, organizationID string, req SearchProjectsRequest) ([]Project, error) {
+	path := fmt.Sprintf("/oapi/v1/projex/organizations/%s/projects:search", url.PathEscape(organizationID))
+	var out []Project
+	if err := c.doJSON(ctx, http.MethodPost, path, nil, req, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) GetProject(ctx context.Context, organizationID, projectID string) (Project, error) {
+	path := fmt.Sprintf("/oapi/v1/projex/organizations/%s/projects/%s", url.PathEscape(organizationID), url.PathEscape(projectID))
+	var out Project
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &out); err != nil {
+		return Project{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) SearchWorkitems(ctx context.Context, organizationID string, req SearchWorkitemsRequest) ([]WorkItem, error) {
+	path := fmt.Sprintf("/oapi/v1/projex/organizations/%s/workitems:search", url.PathEscape(organizationID))
+	var out []WorkItem
+	if err := c.doJSON(ctx, http.MethodPost, path, nil, req, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) GetWorkitem(ctx context.Context, organizationID, workitemID string) (WorkItem, error) {
+	path := fmt.Sprintf("/oapi/v1/projex/organizations/%s/workitems/%s", url.PathEscape(organizationID), url.PathEscape(workitemID))
+	var out WorkItem
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &out); err != nil {
+		return WorkItem{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) ListAllWorkitemTypes(ctx context.Context, organizationID, categories string) ([]WorkItemType, error) {
+	path := fmt.Sprintf("/oapi/v1/projex/organizations/%s/workitemTypes", url.PathEscape(organizationID))
+	query := url.Values{}
+	if strings.TrimSpace(categories) != "" {
+		query.Set("categories", categories)
+	}
+	var out []WorkItemType
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) ListWorkitemTypes(ctx context.Context, organizationID, projectID, category string) ([]WorkItemType, error) {
+	path := fmt.Sprintf("/oapi/v1/projex/organizations/%s/projects/%s/workitemTypes", url.PathEscape(organizationID), url.PathEscape(projectID))
+	query := url.Values{}
+	query.Set("category", category)
+	var out []WorkItemType
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) GetWorkitemTypeFieldConfig(ctx context.Context, organizationID, projectID, workitemTypeID string) ([]WorkItemFieldConfig, error) {
+	path := fmt.Sprintf("/oapi/v1/projex/organizations/%s/projects/%s/workitemTypes/%s/fields", url.PathEscape(organizationID), url.PathEscape(projectID), url.PathEscape(workitemTypeID))
+	var out []WorkItemFieldConfig
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *Client) ListDirectories(ctx context.Context, organizationID, testRepoID string) ([]Directory, error) {
 	path := fmt.Sprintf("/oapi/v1/testhub/organizations/%s/testRepos/%s/directories", url.PathEscape(organizationID), url.PathEscape(testRepoID))
 	var out []Directory
@@ -52,7 +128,7 @@ func (c *Client) ListDirectories(ctx context.Context, organizationID, testRepoID
 }
 
 func (c *Client) SearchTestCases(ctx context.Context, organizationID, testRepoID string, req SearchTestCasesRequest) ([]TestCase, error) {
-	path := fmt.Sprintf("/oapi/v1/testhub/organizations/%s/testRepos/%s/testCases/search", url.PathEscape(organizationID), url.PathEscape(testRepoID))
+	path := fmt.Sprintf("/oapi/v1/testhub/organizations/%s/testRepos/%s/testcases:search", url.PathEscape(organizationID), url.PathEscape(testRepoID))
 	var out []TestCase
 	if err := c.doJSON(ctx, http.MethodPost, path, nil, req, &out); err != nil {
 		return nil, err
@@ -61,10 +137,19 @@ func (c *Client) SearchTestCases(ctx context.Context, organizationID, testRepoID
 }
 
 func (c *Client) GetTestCase(ctx context.Context, organizationID, testRepoID, testCaseID string) (TestCase, error) {
-	path := fmt.Sprintf("/oapi/v1/testhub/organizations/%s/testRepos/%s/testCases/%s", url.PathEscape(organizationID), url.PathEscape(testRepoID), url.PathEscape(testCaseID))
+	path := fmt.Sprintf("/oapi/v1/testhub/organizations/%s/testRepos/%s/testcases/%s", url.PathEscape(organizationID), url.PathEscape(testRepoID), url.PathEscape(testCaseID))
 	var out TestCase
 	if err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &out); err != nil {
 		return TestCase{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) GetTestcaseFieldConfig(ctx context.Context, organizationID, testRepoID string) ([]TestCaseFieldConfig, error) {
+	path := fmt.Sprintf("/oapi/v1/testhub/organizations/%s/testRepos/%s/testcases/fields", url.PathEscape(organizationID), url.PathEscape(testRepoID))
+	var out []TestCaseFieldConfig
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &out); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

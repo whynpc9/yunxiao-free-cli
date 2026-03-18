@@ -1,6 +1,8 @@
 # yunxiao-free-cli
 
-基于 Go 的云效 CLI（首轮只实现测试用例只读能力），用于访问云效免费版范围内的组织与测试管理数据。
+基于 Go 的云效 CLI，用于访问云效免费版范围内的组织、项目协作和测试管理数据。
+
+当前版本的能力边界参考了云效 MCP 项目 [aliyun/alibabacloud-devops-mcp-server](https://github.com/aliyun/alibabacloud-devops-mcp-server)，但只实现免费版内最有价值的只读子集，便于后续继续封装成 agent skill。
 
 ## API 参考
 
@@ -12,9 +14,18 @@
 本版本已使用的只读接口：
 
 - `ListOrganizations`
+- `SearchMembers`
+- `SearchProjects`
+- `GetProject`
+- `SearchWorkitems`
+- `GetWorkitem`
+- `ListAllWorkitemTypes`
+- `ListWorkitemTypes`
+- `GetWorkitemTypeFieldConfig`
 - `SearchTestCases`
 - `GetTestCase`
 - `ListDirectories`
+- `GetTestcaseFieldConfig`
 
 ## 安装
 
@@ -77,6 +88,37 @@ yx org list
 yx org list --json
 yx org use
 yx org use <organizationId>
+yx org members --query 张三
+yx org members --statuses ENABLED --json
+```
+
+### 项目
+
+```bash
+yx project search
+yx project search --conditions '{"conditionGroups":[[{"fieldIdentifier":"name","operator":"BETWEEN","value":["测试项目"]}]]}'
+yx project get --id <projectId>
+yx project get --id <projectId> --json
+```
+
+### 工作项
+
+```bash
+# 查询工作项
+yx workitem search --category Req --space-id <projectId>
+yx workitem search --category Bug --space-id <projectId> --conditions '{"conditionGroups":[[{"fieldIdentifier":"subject","operator":"BETWEEN","value":["登录"]}]]}'
+yx workitem search --category Task --space-id <projectId> --json
+
+# 查询单个工作项
+yx workitem get --id <workitemId>
+yx workitem get --id <workitemId> --json
+
+# 查询工作项类型
+yx workitem types --project <projectId> --category Req
+yx workitem all-types --categories Req,Bug,Task
+
+# 查询工作项类型字段配置
+yx workitem fields --project <projectId> --type <workitemTypeId>
 ```
 
 ### 测试用例（只读）
@@ -94,9 +136,14 @@ yx testcase get --repo <testRepoId> --id <testCaseId> --json
 
 # 查询目录
 yx testcase dirs --repo <testRepoId>
+
+# 查询测试用例字段配置
+yx testcase fields --repo <testRepoId>
 ```
 
 组织可通过 `--org` 显式指定；未指定时使用默认组织。
+
+`--conditions` 和 `--extra-conditions` 需要传官方 OpenAPI 使用的 JSON 对象字符串，CLI 只做格式校验，不改写内容。
 
 ## 开发
 
