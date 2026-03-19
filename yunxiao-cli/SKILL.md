@@ -40,6 +40,9 @@ Use this skill when the task is about reading Yunxiao data through the local `yx
   - `yx workitem all-types --categories Req,Bug,Task --json`
   - `yx workitem fields --project <projectId> --type <workitemTypeId> --json`
 - Test cases:
+  - `yx testplan list --json`
+  - `yx testplan list --project <projectId> --json`
+  - `yx testplan results --plan <testPlanId> --directory <directoryId> --json`
   - `yx testcase search --repo <testRepoId> --json`
   - `yx testcase get --repo <testRepoId> --id <testCaseId> --json`
   - `yx testcase dirs --repo <testRepoId> --json`

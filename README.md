@@ -22,6 +22,8 @@
 - `ListAllWorkitemTypes`
 - `ListWorkitemTypes`
 - `GetWorkitemTypeFieldConfig`
+- `ListTestPlan`
+- `GetTestResultList`
 - `SearchTestCases`
 - `GetTestCase`
 - `ListDirectories`
@@ -148,6 +150,15 @@ yx workitem fields --project <projectId> --type <workitemTypeId>
 ### 测试用例（只读）
 
 ```bash
+# 查询测试计划
+yx testplan list
+yx testplan list --project <projectId>
+yx testplan list --name 测试 --json
+
+# 查询测试计划中的测试结果
+yx testplan results --plan <testPlanId> --directory <directoryId>
+yx testplan results --plan <testPlanId> --directory <directoryId> --json
+
 # 查询用例
 yx testcase search --repo <testRepoId>
 yx testcase search --repo <testRepoId> --page 1 --per-page 20

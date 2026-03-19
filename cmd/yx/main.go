@@ -18,7 +18,7 @@ import (
 
 const (
 	tokenHelpURL = "https://help.aliyun.com/zh/yunxiao/developer-reference/obtain-personal-access-token?scm=20140722.H_2841293._.OR_help-T_cn~zh-V_1"
-	version      = "0.2.0"
+	version      = "0.3.0"
 )
 
 func main() {
@@ -43,6 +43,8 @@ func run(ctx context.Context, args []string) error {
 		return runProject(ctx, args[1:])
 	case "workitem":
 		return runWorkitem(ctx, args[1:])
+	case "testplan":
+		return runTestPlan(ctx, args[1:])
 	case "testcase":
 		return runTestCase(ctx, args[1:])
 	case "config":
@@ -301,7 +303,7 @@ func runProjectSearch(ctx context.Context, cfg config.Config, client *yunxiao.Cl
 			trim(item.Name, 36),
 			emptyDash(item.Status.Name),
 			emptyDash(item.Scope),
-			emptyDash(item.GmtModified),
+			emptyDash(valueString(item.GmtModified)),
 		)
 	}
 	return tw.Flush()
@@ -336,8 +338,8 @@ func runProjectGet(ctx context.Context, cfg config.Config, client *yunxiao.Clien
 	fmt.Printf("LogicalStatus: %s\n", emptyDash(item.LogicalStatus))
 	fmt.Printf("Creator: %s\n", emptyDash(item.Creator.Name))
 	fmt.Printf("Modifier: %s\n", emptyDash(item.Modifier.Name))
-	fmt.Printf("CreatedAt: %s\n", emptyDash(item.GmtCreate))
-	fmt.Printf("UpdatedAt: %s\n", emptyDash(item.GmtModified))
+	fmt.Printf("CreatedAt: %s\n", emptyDash(valueString(item.GmtCreate)))
+	fmt.Printf("UpdatedAt: %s\n", emptyDash(valueString(item.GmtModified)))
 	fmt.Printf("Description: %s\n", emptyDash(item.Description))
 	return nil
 }
@@ -419,7 +421,7 @@ func runWorkitemSearch(ctx context.Context, cfg config.Config, client *yunxiao.C
 			trim(item.Title(), 36),
 			emptyDash(item.Status.Name),
 			emptyDash(item.AssignedTo.Name),
-			emptyDash(item.GmtModified),
+			emptyDash(valueString(item.GmtModified)),
 		)
 	}
 	return tw.Flush()
@@ -456,8 +458,8 @@ func runWorkitemGet(ctx context.Context, cfg config.Config, client *yunxiao.Clie
 	fmt.Printf("Creator: %s\n", emptyDash(item.Creator.Name))
 	fmt.Printf("Modifier: %s\n", emptyDash(item.Modifier.Name))
 	fmt.Printf("Space: %s\n", emptyDash(item.Space.Name))
-	fmt.Printf("CreatedAt: %s\n", emptyDash(item.GmtCreate))
-	fmt.Printf("UpdatedAt: %s\n", emptyDash(item.GmtModified))
+	fmt.Printf("CreatedAt: %s\n", emptyDash(valueString(item.GmtCreate)))
+	fmt.Printf("UpdatedAt: %s\n", emptyDash(valueString(item.GmtModified)))
 	fmt.Printf("Description: %s\n", emptyDash(item.Description))
 	return nil
 }
@@ -536,6 +538,110 @@ func runWorkitemFields(ctx context.Context, cfg config.Config, client *yunxiao.C
 	return printFieldConfigs(items)
 }
 
+func runTestPlan(ctx context.Context, args []string) error {
+	if len(args) == 0 {
+		fmt.Println("用法: yx testplan <list|results>")
+		return nil
+	}
+	cfg, client, err := ensureReady(ctx, true)
+	if err != nil {
+		return err
+	}
+
+	switch args[0] {
+	case "list":
+		return runTestPlanList(ctx, cfg, client, args[1:])
+	case "results":
+		return runTestPlanResults(ctx, cfg, client, args[1:])
+	default:
+		return fmt.Errorf("未知 testplan 子命令: %s", args[0])
+	}
+}
+
+func runTestPlanList(ctx context.Context, cfg config.Config, client *yunxiao.Client, args []string) error {
+	fs := flag.NewFlagSet("testplan list", flag.ContinueOnError)
+	orgID := fs.String("org", "", "组织 ID，默认取配置中的默认组织")
+	projectID := fs.String("project", "", "按项目 ID 过滤")
+	nameContains := fs.String("name", "", "按测试计划名称包含文本过滤")
+	jsonOut := fs.Bool("json", false, "JSON 输出")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	org := requireOrgID(cfg, *orgID)
+	items, err := client.ListTestPlans(ctx, org)
+	if err != nil {
+		return err
+	}
+
+	filtered := make([]yunxiao.TestPlan, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(*projectID) != "" && item.SpaceIdentifier != strings.TrimSpace(*projectID) {
+			continue
+		}
+		if strings.TrimSpace(*nameContains) != "" && !strings.Contains(item.Name, strings.TrimSpace(*nameContains)) {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+
+	if *jsonOut {
+		return cli.PrintJSON(filtered)
+	}
+
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "TESTPLAN_ID\tNAME\tPROJECT_ID\tCREATED")
+	for _, item := range filtered {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
+			item.TestPlanIdentifier,
+			trim(item.Name, 36),
+			emptyDash(item.SpaceIdentifier),
+			emptyDash(valueString(item.GmtCreate)),
+		)
+	}
+	return tw.Flush()
+}
+
+func runTestPlanResults(ctx context.Context, cfg config.Config, client *yunxiao.Client, args []string) error {
+	fs := flag.NewFlagSet("testplan results", flag.ContinueOnError)
+	orgID := fs.String("org", "", "组织 ID，默认取配置中的默认组织")
+	testPlanID := fs.String("plan", "", "测试计划 ID (必填)")
+	directoryID := fs.String("directory", "", "目录 ID (必填)")
+	jsonOut := fs.Bool("json", false, "JSON 输出")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*testPlanID) == "" {
+		return errors.New("--plan 必填")
+	}
+	if strings.TrimSpace(*directoryID) == "" {
+		return errors.New("--directory 必填")
+	}
+
+	org := requireOrgID(cfg, *orgID)
+	items, err := client.GetTestResultList(ctx, org, *testPlanID, *directoryID)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return cli.PrintJSON(items)
+	}
+
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "TESTCASE_ID\tTITLE\tSTATUS\tEXECUTOR\tTESTREPO_ID\tBUGS")
+	for _, item := range items {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d\n",
+			emptyDash(item.Identifier),
+			trim(item.Subject, 36),
+			emptyDash(item.TestResultStatus),
+			emptyDash(item.TestResultExecutor.Name),
+			emptyDash(item.SpaceIdentifier),
+			item.BugCount,
+		)
+	}
+	return tw.Flush()
+}
+
 func runTestCase(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		fmt.Println("用法: yx testcase <search|get|dirs|fields>")
@@ -607,7 +713,7 @@ func runTestCaseSearch(ctx context.Context, cfg config.Config, client *yunxiao.C
 			emptyDash(item.State),
 			emptyDash(item.Priority),
 			emptyDash(item.AssignedTo.Name),
-			emptyDash(item.GmtModified),
+			emptyDash(valueString(item.GmtModified)),
 		)
 	}
 	return tw.Flush()
@@ -647,8 +753,8 @@ func runTestCaseGet(ctx context.Context, cfg config.Config, client *yunxiao.Clie
 	fmt.Printf("Creator: %s\n", emptyDash(item.Creator.Name))
 	fmt.Printf("DirectoryID: %s\n", emptyDash(firstNonEmpty(item.DirectoryID, item.Directory.ID)))
 	fmt.Printf("Directory: %s\n", emptyDash(item.Directory.Name))
-	fmt.Printf("CreatedAt: %s\n", emptyDash(item.GmtCreate))
-	fmt.Printf("UpdatedAt: %s\n", emptyDash(item.GmtModified))
+	fmt.Printf("CreatedAt: %s\n", emptyDash(valueString(item.GmtCreate)))
+	fmt.Printf("UpdatedAt: %s\n", emptyDash(valueString(item.GmtModified)))
 	return nil
 }
 
@@ -901,6 +1007,13 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+func valueString(value any) string {
+	if value == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v", value)
+}
+
 func trim(s string, max int) string {
 	if len(s) <= max || max <= 0 {
 		return s
@@ -933,6 +1046,8 @@ func printRootUsage() {
   yx workitem types --project <projectId> --category <Req|Bug|Task> [--org <organizationId>] [--json]
   yx workitem all-types [--categories Req,Bug,Task] [--org <organizationId>] [--json]
   yx workitem fields --project <projectId> --type <workitemTypeId> [--org <organizationId>] [--json]
+  yx testplan list [--project <projectId>] [--name <keyword>] [--org <organizationId>] [--json]
+  yx testplan results --plan <testPlanId> --directory <directoryId> [--org <organizationId>] [--json]
   yx testcase search --repo <testRepoId> [--org <organizationId>] [--conditions '{"conditionGroups":[[]]}'] [--json]
   yx testcase get --repo <testRepoId> --id <testCaseId> [--org <organizationId>] [--json]
   yx testcase dirs --repo <testRepoId> [--org <organizationId>] [--json]

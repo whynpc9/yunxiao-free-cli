@@ -49,8 +49,8 @@ type Project struct {
 	Description   string   `json:"description"`
 	Scope         string   `json:"scope"`
 	LogicalStatus string   `json:"logicalStatus"`
-	GmtCreate     string   `json:"gmtCreate"`
-	GmtModified   string   `json:"gmtModified"`
+	GmtCreate     any      `json:"gmtCreate"`
+	GmtModified   any      `json:"gmtModified"`
 	Status        NamedRef `json:"status"`
 	Creator       UserRef  `json:"creator"`
 	Modifier      UserRef  `json:"modifier"`
@@ -75,8 +75,8 @@ type WorkItem struct {
 	Description   string   `json:"description"`
 	CategoryID    string   `json:"categoryId"`
 	LogicalStatus string   `json:"logicalStatus"`
-	GmtCreate     string   `json:"gmtCreate"`
-	GmtModified   string   `json:"gmtModified"`
+	GmtCreate     any      `json:"gmtCreate"`
+	GmtModified   any      `json:"gmtModified"`
 	Status        NamedRef `json:"status"`
 	AssignedTo    UserRef  `json:"assignedTo"`
 	Creator       UserRef  `json:"creator"`
@@ -119,6 +119,38 @@ type WorkItemFieldConfig struct {
 	Description string `json:"description"`
 }
 
+type TestPlan struct {
+	TestPlanIdentifier string   `json:"testPlanIdentifier"`
+	Name               string   `json:"name"`
+	Managers           []string `json:"managers"`
+	GmtCreate          any      `json:"gmtCreate"`
+	SpaceIdentifier    string   `json:"spaceIdentifier"`
+	SprintIdentifier   any      `json:"sprintIdentifier"`
+}
+
+type TestPlanFieldValue struct {
+	FieldFormat     string `json:"fieldFormat"`
+	FieldIdentifier string `json:"fieldIdentifier"`
+	FieldClassName  string `json:"fieldClassName"`
+	Value           any    `json:"value"`
+}
+
+type TestResultSummary struct {
+	Identifier                   string               `json:"identifier"`
+	GmtCreate                    any                  `json:"gmtCreate"`
+	Subject                      string               `json:"subject"`
+	AssignedTo                   UserRef              `json:"assignedTo"`
+	SpaceIdentifier              string               `json:"spaceIdentifier"`
+	CustomFields                 []TestPlanFieldValue `json:"customFields"`
+	TestResultIdentifier         string               `json:"testResultIdentifier"`
+	TestResultStatus             string               `json:"testResultStatus"`
+	TestResultExecutorIdentifier string               `json:"testResultExecutorIdentifier"`
+	TestResultExecutor           UserRef              `json:"testResultExecutor"`
+	TestResultGmtCreate          any                  `json:"testResultGmtCreate"`
+	TestResultGmtModified        any                  `json:"testResultGmtModified"`
+	BugCount                     int                  `json:"bugCount"`
+}
+
 type Directory struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
@@ -142,8 +174,8 @@ type TestCase struct {
 	State       string   `json:"state"`
 	Creator     UserRef  `json:"creator"`
 	AssignedTo  UserRef  `json:"assignedTo"`
-	GmtCreate   string   `json:"gmtCreate"`
-	GmtModified string   `json:"gmtModified"`
+	GmtCreate   any      `json:"gmtCreate"`
+	GmtModified any      `json:"gmtModified"`
 	DirectoryID string   `json:"directoryId"`
 	Directory   NamedRef `json:"directory"`
 }

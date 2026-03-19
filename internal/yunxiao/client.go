@@ -118,6 +118,33 @@ func (c *Client) GetWorkitemTypeFieldConfig(ctx context.Context, organizationID,
 	return out, nil
 }
 
+func (c *Client) ListTestPlans(ctx context.Context, organizationID string) ([]TestPlan, error) {
+	path := fmt.Sprintf("/oapi/v1/projex/organizations/%s/testPlan/list", url.PathEscape(organizationID))
+	var out []TestPlan
+	if err := c.doJSON(ctx, http.MethodPost, path, nil, map[string]any{}, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) GetTestResultList(ctx context.Context, organizationID, testPlanID, directoryID string) ([]TestResultSummary, error) {
+	body := map[string]any{}
+	projexPath := fmt.Sprintf("/oapi/v1/projex/organizations/%s/%s/result/list/%s", url.PathEscape(organizationID), url.PathEscape(testPlanID), url.PathEscape(directoryID))
+	var out []TestResultSummary
+	if err := c.doJSON(ctx, http.MethodPost, projexPath, nil, body, &out); err == nil {
+		return out, nil
+	} else if !strings.Contains(err.Error(), "status=404") {
+		return nil, err
+	}
+
+	testhubPath := fmt.Sprintf("/oapi/v1/testhub/organizations/%s/%s/result/list/%s", url.PathEscape(organizationID), url.PathEscape(testPlanID), url.PathEscape(directoryID))
+	out = nil
+	if err := c.doJSON(ctx, http.MethodPost, testhubPath, nil, body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *Client) ListDirectories(ctx context.Context, organizationID, testRepoID string) ([]Directory, error) {
 	path := fmt.Sprintf("/oapi/v1/testhub/organizations/%s/testRepos/%s/directories", url.PathEscape(organizationID), url.PathEscape(testRepoID))
 	var out []Directory
