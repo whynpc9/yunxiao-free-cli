@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
 const (
-	defaultDomain = "openapi-rdc.aliyuncs.com"
-	appDir        = "yunxiao-free-cli"
+	defaultDomain  = "openapi-rdc.aliyuncs.com"
+	appDir         = "yunxiao-free-cli"
+	EnvToken       = "YUNXIAO_TOKEN"
+	LegacyEnvToken = "YX_TOKEN"
 )
 
 // Config is the local persisted user settings.
@@ -89,4 +92,21 @@ func MaskToken(token string) string {
 		return "********"
 	}
 	return token[:4] + "..." + token[len(token)-4:]
+}
+
+func TokenFromEnv() (string, string) {
+	for _, name := range []string{EnvToken, LegacyEnvToken} {
+		value := strings.TrimSpace(os.Getenv(name))
+		if value != "" {
+			return value, name
+		}
+	}
+	return "", ""
+}
+
+func EffectiveToken(cfg Config) (string, string) {
+	if token, envName := TokenFromEnv(); token != "" {
+		return token, "env:" + envName
+	}
+	return strings.TrimSpace(cfg.Token), "config"
 }

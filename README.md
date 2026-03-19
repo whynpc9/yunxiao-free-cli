@@ -61,6 +61,12 @@ skill 目录位于 `yunxiao-cli/`，用于指导 agent 安装并调用本仓库�
 yx auth
 ```
 
+也可以不写入本地配置，直接通过环境变量指定 token：
+
+```bash
+export YUNXIAO_TOKEN="<your-pat>"
+```
+
 `auth` 会提示录入 PAT（个人访问令牌）并附带帮助页：
 
 <https://help.aliyun.com/zh/yunxiao/developer-reference/obtain-personal-access-token?scm=20140722.H_2841293._.OR_help-T_cn~zh-V_1>
@@ -76,6 +82,14 @@ yx auth
 - `domain`（默认 `openapi-rdc.aliyuncs.com`）
 - `defaultOrganizationId`
 - `defaultOrganizationName`
+
+token 优先级：
+
+- `YUNXIAO_TOKEN`
+- `YX_TOKEN`
+- 本地 `config.json` 中的 `token`
+
+可通过 `yx config show` 查看当前生效 token 的来源。
 
 ## 默认组织选择逻辑
 

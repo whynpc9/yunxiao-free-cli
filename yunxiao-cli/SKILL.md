@@ -21,7 +21,7 @@ Use this skill when the task is about reading Yunxiao data through the local `yx
    ```
 2. Ensure auth exists.
    - Run `yx config show`.
-   - If no token is configured, run `yx auth` and follow the PAT prompt.
+   - If no token is configured, either export `YUNXIAO_TOKEN=<pat>` or run `yx auth` and follow the PAT prompt.
 3. Prefer `--json` whenever the result will be filtered, summarized, or fed into later steps.
 4. Prefer explicit IDs (`--org`, `--project`, `--repo`, `--id`) when the user already provided them. Otherwise rely on the configured default organization.
 
@@ -58,4 +58,5 @@ Do not invent non-JSON shorthand. Pass the JSON object string exactly as the CLI
 - Stay within the free-edition read-only scope unless the user explicitly asks to extend the CLI itself.
 - Use table output for quick human inspection and `--json` for anything programmatic.
 - If a query fails, surface the exact command and the API error summary so the user can distinguish auth issues, permission issues, and bad IDs.
+- Runtime token precedence is `YUNXIAO_TOKEN`, then `YX_TOKEN`, then the token stored by `yx auth`.
 - If `yx` is installed but not on `PATH`, call it via its absolute path after locating it in `$HOME/.local/bin/yx`.

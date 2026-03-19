@@ -70,18 +70,26 @@ func runAuth(ctx context.Context) error {
 
 	fmt.Fprintln(os.Stderr, "请录入云效个人访问令牌(PAT)。获取方式:")
 	fmt.Fprintln(os.Stderr, tokenHelpURL)
+	if _, envName := config.TokenFromEnv(); envName != "" {
+		fmt.Fprintf(os.Stderr, "检测到环境变量 %s，运行时会优先使用它；如需写入本地配置，可继续输入 PAT。\n", envName)
+	}
 	line, err := cli.PromptLine("PAT (直接回车可保留当前值): ")
 	if err != nil {
 		return fmt.Errorf("读取 PAT 失败: %w", err)
 	}
 
+	runtimeToken := ""
 	if strings.TrimSpace(line) != "" {
 		cfg.Token = strings.TrimSpace(line)
-	} else if cfg.Token == "" {
-		return errors.New("PAT 不能为空")
+		runtimeToken = cfg.Token
+	} else {
+		runtimeToken, _ = config.EffectiveToken(cfg)
+		if runtimeToken == "" {
+			return fmt.Errorf("PAT 不能为空；也可通过环境变量 %s 指定", config.EnvToken)
+		}
 	}
 
-	client := yunxiao.NewClient(cfg.Domain, cfg.Token)
+	client := yunxiao.NewClient(cfg.Domain, runtimeToken)
 	if err := chooseDefaultOrganization(ctx, client, &cfg, true); err != nil {
 		return err
 	}
@@ -706,7 +714,10 @@ func runConfig(args []string) error {
 		path, _ := config.ConfigFilePath()
 		fmt.Printf("Config: %s\n", path)
 		fmt.Printf("Domain: %s\n", cfg.Domain)
-		fmt.Printf("Token: %s\n", config.MaskToken(cfg.Token))
+		effectiveToken, tokenSource := config.EffectiveToken(cfg)
+		fmt.Printf("Stored Token: %s\n", config.MaskToken(cfg.Token))
+		fmt.Printf("Effective Token: %s\n", config.MaskToken(effectiveToken))
+		fmt.Printf("Token Source: %s\n", tokenSource)
 		fmt.Printf("Default Organization: %s (%s)\n", cfg.DefaultOrganizationName, cfg.DefaultOrganizationID)
 		return nil
 	}
@@ -722,9 +733,11 @@ func ensureReady(ctx context.Context, ensureOrg bool) (config.Config, *yunxiao.C
 		cfg.Domain = "openapi-rdc.aliyuncs.com"
 	}
 
-	if strings.TrimSpace(cfg.Token) == "" {
+	runtimeToken, _ := config.EffectiveToken(cfg)
+	if strings.TrimSpace(runtimeToken) == "" {
 		fmt.Fprintln(os.Stderr, "首次使用请先配置 PAT。帮助文档:")
 		fmt.Fprintln(os.Stderr, tokenHelpURL)
+		fmt.Fprintf(os.Stderr, "也可通过环境变量 %s 指定。\\n", config.EnvToken)
 		line, err := cli.PromptLine("请输入 PAT: ")
 		if err != nil {
 			return config.Config{}, nil, err
@@ -733,9 +746,10 @@ func ensureReady(ctx context.Context, ensureOrg bool) (config.Config, *yunxiao.C
 			return config.Config{}, nil, errors.New("PAT 不能为空")
 		}
 		cfg.Token = strings.TrimSpace(line)
+		runtimeToken = cfg.Token
 	}
 
-	client := yunxiao.NewClient(cfg.Domain, cfg.Token)
+	client := yunxiao.NewClient(cfg.Domain, runtimeToken)
 	if ensureOrg {
 		if err := chooseDefaultOrganization(ctx, client, &cfg, false); err != nil {
 			return config.Config{}, nil, err
