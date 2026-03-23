@@ -12,6 +12,12 @@ type NamedRef struct {
 	Name string `json:"name"`
 }
 
+type LabelRef struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+}
+
 type Organization struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -68,20 +74,31 @@ type SearchWorkitemsRequest struct {
 }
 
 type WorkItem struct {
-	ID            any      `json:"id"`
-	Identifier    string   `json:"identifier"`
-	Subject       string   `json:"subject"`
-	Name          string   `json:"name"`
-	Description   string   `json:"description"`
-	CategoryID    string   `json:"categoryId"`
-	LogicalStatus string   `json:"logicalStatus"`
-	GmtCreate     any      `json:"gmtCreate"`
-	GmtModified   any      `json:"gmtModified"`
-	Status        NamedRef `json:"status"`
-	AssignedTo    UserRef  `json:"assignedTo"`
-	Creator       UserRef  `json:"creator"`
-	Modifier      UserRef  `json:"modifier"`
-	Space         NamedRef `json:"space"`
+	ID                any        `json:"id"`
+	Identifier        string     `json:"identifier"`
+	SerialNumber      string     `json:"serialNumber"`
+	Subject           string     `json:"subject"`
+	Name              string     `json:"name"`
+	Description       string     `json:"description"`
+	CategoryID        string     `json:"categoryId"`
+	LogicalStatus     string     `json:"logicalStatus"`
+	FormatType        string     `json:"formatType"`
+	ParentID          string     `json:"parentId"`
+	GmtCreate         any        `json:"gmtCreate"`
+	GmtModified       any        `json:"gmtModified"`
+	Status            NamedRef   `json:"status"`
+	AssignedTo        UserRef    `json:"assignedTo"`
+	Creator           UserRef    `json:"creator"`
+	Modifier          UserRef    `json:"modifier"`
+	Verifier          UserRef    `json:"verifier"`
+	Space             NamedRef   `json:"space"`
+	Sprint            NamedRef   `json:"sprint"`
+	WorkitemType      NamedRef   `json:"workitemType"`
+	Labels            []LabelRef `json:"labels"`
+	Participants      []UserRef  `json:"participants"`
+	Trackers          []UserRef  `json:"trackers"`
+	Versions          []NamedRef `json:"versions"`
+	CustomFieldValues any        `json:"customFieldValues"`
 }
 
 func (w WorkItem) IDString() string {

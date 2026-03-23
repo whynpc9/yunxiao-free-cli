@@ -138,6 +138,7 @@ yx workitem search --category Task --space-id <projectId> --json
 # 查询单个工作项
 yx workitem get --id <workitemId>
 yx workitem get --id <workitemId> --json
+yx workitem get --serial DMRDEV-1364 --project <projectId> --plain-description
 
 # 查询工作项类型
 yx workitem types --project <projectId> --category Req
@@ -145,6 +146,10 @@ yx workitem all-types --categories Req,Bug,Task
 
 # 查询工作项类型字段配置
 yx workitem fields --project <projectId> --type <workitemTypeId>
+
+# 统计项目内某个创建者的工作项标题/描述字数
+yx workitem stats --project <projectId> --creator 王弘毅 --hydrate-details
+yx workitem stats --project <projectId> --creator 王弘毅 --hydrate-details --json
 ```
 
 ### 测试用例（只读）

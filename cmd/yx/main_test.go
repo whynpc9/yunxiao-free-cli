@@ -31,6 +31,23 @@ func TestSplitCSV(t *testing.T) {
 	}
 }
 
+func TestSplitCategoriesDefault(t *testing.T) {
+	got := splitCategories("")
+	want := []string{"Req", "Bug", "Task"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected categories: %#v", got)
+	}
+}
+
+func TestPlainWorkitemDescription(t *testing.T) {
+	raw := `{"htmlValue":"<h1>需求</h1><p>第一段</p><ul><li>项目A</li><li>项目B</li></ul>"}`
+	got := plainWorkitemDescription(raw)
+	want := "需求 第一段 项目A 项目B"
+	if got != want {
+		t.Fatalf("unexpected description: %q", got)
+	}
+}
+
 func TestPickOrgID(t *testing.T) {
 	cfg := config.Config{DefaultOrganizationID: "org-default"}
 	if got := pickOrgID(cfg, ""); got != "org-default" {

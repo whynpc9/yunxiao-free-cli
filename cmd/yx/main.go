@@ -6,10 +6,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"html"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"text/tabwriter"
+	"unicode/utf8"
 
 	"github.com/wanghongyi/yunxiao-free-cli/internal/cli"
 	"github.com/wanghongyi/yunxiao-free-cli/internal/config"
@@ -19,6 +22,13 @@ import (
 const (
 	tokenHelpURL = "https://help.aliyun.com/zh/yunxiao/developer-reference/obtain-personal-access-token?scm=20140722.H_2841293._.OR_help-T_cn~zh-V_1"
 	version      = "0.3.0"
+)
+
+var (
+	htmlBreakRe  = regexp.MustCompile(`(?i)<\s*br\s*/?\s*>`)
+	htmlCloseRe  = regexp.MustCompile(`(?i)</\s*(p|div|li|ul|ol|h[1-6]|blockquote|tr)\s*>`)
+	htmlTagRe    = regexp.MustCompile(`(?s)<[^>]+>`)
+	whitespaceRe = regexp.MustCompile(`\s+`)
 )
 
 func main() {
@@ -346,7 +356,7 @@ func runProjectGet(ctx context.Context, cfg config.Config, client *yunxiao.Clien
 
 func runWorkitem(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		fmt.Println("用法: yx workitem <search|get|types|all-types|fields>")
+		fmt.Println("用法: yx workitem <search|get|stats|types|all-types|fields>")
 		return nil
 	}
 	cfg, client, err := ensureReady(ctx, true)
@@ -359,6 +369,8 @@ func runWorkitem(ctx context.Context, args []string) error {
 		return runWorkitemSearch(ctx, cfg, client, args[1:])
 	case "get":
 		return runWorkitemGet(ctx, cfg, client, args[1:])
+	case "stats":
+		return runWorkitemStats(ctx, cfg, client, args[1:])
 	case "types":
 		return runWorkitemTypes(ctx, cfg, client, args[1:])
 	case "all-types":
@@ -413,10 +425,11 @@ func runWorkitemSearch(ctx context.Context, cfg config.Config, client *yunxiao.C
 	}
 
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tIDENTIFIER\tTITLE\tSTATUS\tASSIGNEE\tUPDATED")
+	fmt.Fprintln(tw, "ID\tSERIAL\tIDENTIFIER\tTITLE\tSTATUS\tASSIGNEE\tUPDATED")
 	for _, item := range items {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			item.IDString(),
+			emptyDash(firstNonEmpty(item.SerialNumber, item.Identifier)),
 			emptyDash(item.Identifier),
 			trim(item.Title(), 36),
 			emptyDash(item.Status.Name),
@@ -430,17 +443,33 @@ func runWorkitemSearch(ctx context.Context, cfg config.Config, client *yunxiao.C
 func runWorkitemGet(ctx context.Context, cfg config.Config, client *yunxiao.Client, args []string) error {
 	fs := flag.NewFlagSet("workitem get", flag.ContinueOnError)
 	orgID := fs.String("org", "", "组织 ID，默认取配置中的默认组织")
-	workitemID := fs.String("id", "", "工作项 ID (必填)")
+	workitemID := fs.String("id", "", "工作项 ID")
+	serialNumber := fs.String("serial", "", "工作项编号，例如 DMRDEV-1364")
+	projectID := fs.String("project", "", "项目 ID；使用 --serial 时必填")
+	categories := fs.String("categories", "Req,Bug,Task", "使用 --serial 查找时搜索的工作项分类")
+	plainDescription := fs.Bool("plain-description", false, "以纯文本展示描述内容")
 	jsonOut := fs.Bool("json", false, "JSON 输出")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if strings.TrimSpace(*workitemID) == "" {
-		return errors.New("--id 必填")
+	if strings.TrimSpace(*workitemID) == "" && strings.TrimSpace(*serialNumber) == "" {
+		return errors.New("--id 或 --serial 至少指定一个")
+	}
+	if strings.TrimSpace(*serialNumber) != "" && strings.TrimSpace(*projectID) == "" {
+		return errors.New("使用 --serial 时 --project 必填")
 	}
 
 	org := requireOrgID(cfg, *orgID)
-	item, err := client.GetWorkitem(ctx, org, *workitemID)
+	targetID := strings.TrimSpace(*workitemID)
+	if targetID == "" {
+		found, err := findWorkitemBySerial(ctx, client, org, strings.TrimSpace(*projectID), strings.TrimSpace(*serialNumber), splitCategories(*categories))
+		if err != nil {
+			return err
+		}
+		targetID = found.IDString()
+	}
+
+	item, err := client.GetWorkitem(ctx, org, targetID)
 	if err != nil {
 		return err
 	}
@@ -448,19 +477,138 @@ func runWorkitemGet(ctx context.Context, cfg config.Config, client *yunxiao.Clie
 		return cli.PrintJSON(item)
 	}
 
+	parentLabel := ""
+	if strings.TrimSpace(item.ParentID) != "" {
+		parentLabel = item.ParentID
+		if parent, err := client.GetWorkitem(ctx, org, item.ParentID); err == nil {
+			parentLabel = fmt.Sprintf("%s / %s", firstNonEmpty(parent.SerialNumber, parent.Identifier, parent.IDString()), parent.Title())
+		}
+	}
+
+	descriptionText := plainWorkitemDescription(item.Description)
+	descriptionLabel := emptyDash(item.Description)
+	if *plainDescription {
+		descriptionLabel = emptyDash(descriptionText)
+	}
+
 	fmt.Printf("ID: %s\n", item.IDString())
 	fmt.Printf("Identifier: %s\n", emptyDash(item.Identifier))
+	fmt.Printf("SerialNumber: %s\n", emptyDash(firstNonEmpty(item.SerialNumber, item.Identifier)))
 	fmt.Printf("Title: %s\n", emptyDash(item.Title()))
+	fmt.Printf("Type: %s\n", emptyDash(item.WorkitemType.Name))
 	fmt.Printf("Category: %s\n", emptyDash(item.CategoryID))
 	fmt.Printf("Status: %s\n", emptyDash(item.Status.Name))
 	fmt.Printf("LogicalStatus: %s\n", emptyDash(item.LogicalStatus))
 	fmt.Printf("Assignee: %s\n", emptyDash(item.AssignedTo.Name))
 	fmt.Printf("Creator: %s\n", emptyDash(item.Creator.Name))
 	fmt.Printf("Modifier: %s\n", emptyDash(item.Modifier.Name))
+	fmt.Printf("Verifier: %s\n", emptyDash(item.Verifier.Name))
 	fmt.Printf("Space: %s\n", emptyDash(item.Space.Name))
+	fmt.Printf("Sprint: %s\n", emptyDash(item.Sprint.Name))
+	fmt.Printf("Parent: %s\n", emptyDash(parentLabel))
+	fmt.Printf("Labels: %s\n", emptyDash(joinLabelNames(item.Labels)))
+	fmt.Printf("Participants: %s\n", emptyDash(joinUserNames(item.Participants)))
+	fmt.Printf("Trackers: %s\n", emptyDash(joinUserNames(item.Trackers)))
+	fmt.Printf("Versions: %s\n", emptyDash(joinNamedRefs(item.Versions)))
+	fmt.Printf("FormatType: %s\n", emptyDash(item.FormatType))
 	fmt.Printf("CreatedAt: %s\n", emptyDash(valueString(item.GmtCreate)))
 	fmt.Printf("UpdatedAt: %s\n", emptyDash(valueString(item.GmtModified)))
-	fmt.Printf("Description: %s\n", emptyDash(item.Description))
+	fmt.Printf("DescriptionChars: %d\n", utf8.RuneCountInString(descriptionText))
+	fmt.Printf("Description: %s\n", descriptionLabel)
+	return nil
+}
+
+func runWorkitemStats(ctx context.Context, cfg config.Config, client *yunxiao.Client, args []string) error {
+	fs := flag.NewFlagSet("workitem stats", flag.ContinueOnError)
+	orgID := fs.String("org", "", "组织 ID，默认取配置中的默认组织")
+	projectID := fs.String("project", "", "项目 ID (必填)")
+	creatorName := fs.String("creator", "", "按创建者姓名过滤")
+	categories := fs.String("categories", "Req,Bug,Task", "工作项分类，逗号分隔")
+	hydrateDetails := fs.Bool("hydrate-details", false, "逐条拉取详情，获取完整描述")
+	jsonOut := fs.Bool("json", false, "JSON 输出")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*projectID) == "" {
+		return errors.New("--project 必填")
+	}
+	if strings.TrimSpace(*creatorName) == "" {
+		return errors.New("--creator 必填")
+	}
+
+	org := requireOrgID(cfg, *orgID)
+	items, err := listProjectWorkitems(ctx, client, org, strings.TrimSpace(*projectID), splitCategories(*categories))
+	if err != nil {
+		return err
+	}
+
+	filtered := make([]yunxiao.WorkItem, 0, len(items))
+	for _, item := range items {
+		if item.Creator.Name == strings.TrimSpace(*creatorName) {
+			filtered = append(filtered, item)
+		}
+	}
+
+	titleChars := 0
+	descriptionChars := 0
+	itemsWithDescription := 0
+	summaries := make([]map[string]any, 0, len(filtered))
+	for _, item := range filtered {
+		if *hydrateDetails {
+			detail, err := client.GetWorkitem(ctx, org, item.IDString())
+			if err != nil {
+				return fmt.Errorf("查询工作项详情失败 %s: %w", item.IDString(), err)
+			}
+			item = detail
+		}
+
+		titleCount := utf8.RuneCountInString(item.Title())
+		descriptionCount := utf8.RuneCountInString(plainWorkitemDescription(item.Description))
+		titleChars += titleCount
+		descriptionChars += descriptionCount
+		if descriptionCount > 0 {
+			itemsWithDescription++
+		}
+		summaries = append(summaries, map[string]any{
+			"id":               item.IDString(),
+			"serialNumber":     firstNonEmpty(item.SerialNumber, item.Identifier),
+			"title":            item.Title(),
+			"creator":          item.Creator.Name,
+			"titleChars":       titleCount,
+			"descriptionChars": descriptionCount,
+			"totalChars":       titleCount + descriptionCount,
+		})
+	}
+
+	sort.Slice(summaries, func(i, j int) bool {
+		return fmt.Sprintf("%v", summaries[i]["serialNumber"]) < fmt.Sprintf("%v", summaries[j]["serialNumber"])
+	})
+
+	result := map[string]any{
+		"projectId":            strings.TrimSpace(*projectID),
+		"creator":              strings.TrimSpace(*creatorName),
+		"categories":           splitCategories(*categories),
+		"hydrateDetails":       *hydrateDetails,
+		"count":                len(filtered),
+		"titleChars":           titleChars,
+		"descriptionChars":     descriptionChars,
+		"totalChars":           titleChars + descriptionChars,
+		"itemsWithDescription": itemsWithDescription,
+		"items":                summaries,
+	}
+	if *jsonOut {
+		return cli.PrintJSON(result)
+	}
+
+	fmt.Printf("ProjectID: %s\n", strings.TrimSpace(*projectID))
+	fmt.Printf("Creator: %s\n", strings.TrimSpace(*creatorName))
+	fmt.Printf("Categories: %s\n", strings.Join(splitCategories(*categories), ","))
+	fmt.Printf("HydrateDetails: %t\n", *hydrateDetails)
+	fmt.Printf("Count: %d\n", len(filtered))
+	fmt.Printf("TitleChars: %d\n", titleChars)
+	fmt.Printf("DescriptionChars: %d\n", descriptionChars)
+	fmt.Printf("TotalChars: %d\n", titleChars+descriptionChars)
+	fmt.Printf("ItemsWithDescription: %d\n", itemsWithDescription)
 	return nil
 }
 
@@ -955,6 +1103,154 @@ func splitCSV(s string) []string {
 	return out
 }
 
+func splitCategories(s string) []string {
+	items := splitCSV(s)
+	if len(items) == 0 {
+		return []string{"Req", "Bug", "Task"}
+	}
+	return items
+}
+
+func listProjectWorkitems(ctx context.Context, client *yunxiao.Client, orgID, projectID string, categories []string) ([]yunxiao.WorkItem, error) {
+	all := make([]yunxiao.WorkItem, 0, 256)
+	for _, category := range categories {
+		for page := 1; ; page++ {
+			items, err := client.SearchWorkitems(ctx, orgID, yunxiao.SearchWorkitemsRequest{
+				Category:  category,
+				OrderBy:   "gmtCreate",
+				Page:      page,
+				PerPage:   100,
+				Sort:      "desc",
+				SpaceID:   projectID,
+				SpaceType: "Project",
+			})
+			if err != nil {
+				return nil, fmt.Errorf("查询工作项失败 %s page=%d: %w", category, page, err)
+			}
+			if len(items) == 0 {
+				break
+			}
+			all = append(all, items...)
+			if len(items) < 100 {
+				break
+			}
+		}
+	}
+	return all, nil
+}
+
+func findWorkitemBySerial(ctx context.Context, client *yunxiao.Client, orgID, projectID, serial string, categories []string) (yunxiao.WorkItem, error) {
+	conditionMap := map[string]any{
+		"conditionGroups": [][]map[string]any{
+			{
+				{
+					"fieldIdentifier": "serialNumber",
+					"operator":        "CONTAINS",
+					"value":           []string{serial},
+					"toValue":         nil,
+				},
+			},
+		},
+	}
+	conditions, err := json.Marshal(conditionMap)
+	if err != nil {
+		return yunxiao.WorkItem{}, fmt.Errorf("构造 serial 查询条件失败: %w", err)
+	}
+
+	for _, category := range categories {
+		for page := 1; ; page++ {
+			items, err := client.SearchWorkitems(ctx, orgID, yunxiao.SearchWorkitemsRequest{
+				Category:   category,
+				Conditions: string(conditions),
+				OrderBy:    "gmtCreate",
+				Page:       page,
+				PerPage:    100,
+				Sort:       "desc",
+				SpaceID:    projectID,
+				SpaceType:  "Project",
+			})
+			if err != nil {
+				return yunxiao.WorkItem{}, fmt.Errorf("按编号查询工作项失败 %s: %w", category, err)
+			}
+			for _, item := range items {
+				if firstNonEmpty(item.SerialNumber, item.Identifier) == serial {
+					return item, nil
+				}
+			}
+			if len(items) == 0 || len(items) < 100 {
+				break
+			}
+		}
+	}
+	return yunxiao.WorkItem{}, fmt.Errorf("未找到工作项编号: %s", serial)
+}
+
+func plainWorkitemDescription(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+
+	var rich struct {
+		HTMLValue string `json:"htmlValue"`
+	}
+	if json.Unmarshal([]byte(raw), &rich) == nil && strings.TrimSpace(rich.HTMLValue) != "" {
+		return htmlToPlainText(rich.HTMLValue)
+	}
+	return normalizeWhitespace(html.UnescapeString(raw))
+}
+
+func htmlToPlainText(s string) string {
+	s = html.UnescapeString(s)
+	s = htmlBreakRe.ReplaceAllString(s, "\n")
+	s = htmlCloseRe.ReplaceAllString(s, "\n")
+	s = htmlTagRe.ReplaceAllString(s, " ")
+	return normalizeWhitespace(s)
+}
+
+func normalizeWhitespace(s string) string {
+	return strings.TrimSpace(whitespaceRe.ReplaceAllString(strings.TrimSpace(s), " "))
+}
+
+func joinUserNames(items []yunxiao.UserRef) string {
+	if len(items) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.Name) != "" {
+			names = append(names, item.Name)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
+func joinNamedRefs(items []yunxiao.NamedRef) string {
+	if len(items) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.Name) != "" {
+			names = append(names, item.Name)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
+func joinLabelNames(items []yunxiao.LabelRef) string {
+	if len(items) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.Name) != "" {
+			names = append(names, item.Name)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
 func printWorkitemTypes(items []yunxiao.WorkItemType) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "ID\tNAME\tCATEGORY\tDEFAULT\tENABLED")
@@ -1042,7 +1338,8 @@ func printRootUsage() {
   yx project search [--org <organizationId>] [--conditions '{"conditionGroups":[[]]}'] [--json]
   yx project get --id <projectId> [--org <organizationId>] [--json]
   yx workitem search --category <Req|Bug|Task> [--space-id <projectId>] [--org <organizationId>] [--conditions '{"conditionGroups":[[]]}'] [--json]
-  yx workitem get --id <workitemId> [--org <organizationId>] [--json]
+  yx workitem get (--id <workitemId> | --serial <DMRDEV-1364> --project <projectId>) [--plain-description] [--org <organizationId>] [--json]
+  yx workitem stats --project <projectId> --creator <name> [--categories Req,Bug,Task] [--hydrate-details] [--org <organizationId>] [--json]
   yx workitem types --project <projectId> --category <Req|Bug|Task> [--org <organizationId>] [--json]
   yx workitem all-types [--categories Req,Bug,Task] [--org <organizationId>] [--json]
   yx workitem fields --project <projectId> --type <workitemTypeId> [--org <organizationId>] [--json]
