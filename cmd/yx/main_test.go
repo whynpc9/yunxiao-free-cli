@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
 	"github.com/wanghongyi/yunxiao-free-cli/internal/config"
+	"github.com/wanghongyi/yunxiao-free-cli/internal/yunxiao"
 )
 
 func TestValidateJSONObjectString(t *testing.T) {
@@ -45,6 +47,35 @@ func TestPlainWorkitemDescription(t *testing.T) {
 	want := "需求 第一段 项目A 项目B"
 	if got != want {
 		t.Fatalf("unexpected description: %q", got)
+	}
+}
+
+func TestWorkitemMatchesCreator(t *testing.T) {
+	item := yunxiao.WorkItem{Creator: yunxiao.UserRef{ID: "user-1", Name: "王弘毅"}}
+	if !workitemMatchesCreator(item, "王弘毅", "") {
+		t.Fatal("expected match by creator name")
+	}
+	if !workitemMatchesCreator(item, "", "user-1") {
+		t.Fatal("expected match by creator id")
+	}
+	if !workitemMatchesCreator(item, "王弘毅", "user-1") {
+		t.Fatal("expected match by creator name and id")
+	}
+	if workitemMatchesCreator(item, "其他人", "") {
+		t.Fatal("expected mismatch by creator name")
+	}
+	if workitemMatchesCreator(item, "", "user-2") {
+		t.Fatal("expected mismatch by creator id")
+	}
+}
+
+func TestHydrateWorkitemsNoConcurrency(t *testing.T) {
+	items, err := hydrateWorkitems(context.Background(), nil, "org", []yunxiao.WorkItem{}, 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected empty items, got %#v", items)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"text/tabwriter"
 	"unicode/utf8"
 
@@ -523,6 +524,7 @@ func runWorkitemStats(ctx context.Context, cfg config.Config, client *yunxiao.Cl
 	orgID := fs.String("org", "", "组织 ID，默认取配置中的默认组织")
 	projectID := fs.String("project", "", "项目 ID (必填)")
 	creatorName := fs.String("creator", "", "按创建者姓名过滤")
+	creatorID := fs.String("creator-id", "", "按创建者用户 ID 过滤")
 	categories := fs.String("categories", "Req,Bug,Task", "工作项分类，逗号分隔")
 	hydrateDetails := fs.Bool("hydrate-details", false, "逐条拉取详情，获取完整描述")
 	jsonOut := fs.Bool("json", false, "JSON 输出")
@@ -532,8 +534,8 @@ func runWorkitemStats(ctx context.Context, cfg config.Config, client *yunxiao.Cl
 	if strings.TrimSpace(*projectID) == "" {
 		return errors.New("--project 必填")
 	}
-	if strings.TrimSpace(*creatorName) == "" {
-		return errors.New("--creator 必填")
+	if strings.TrimSpace(*creatorName) == "" && strings.TrimSpace(*creatorID) == "" {
+		return errors.New("--creator 或 --creator-id 至少指定一个")
 	}
 
 	org := requireOrgID(cfg, *orgID)
@@ -544,8 +546,15 @@ func runWorkitemStats(ctx context.Context, cfg config.Config, client *yunxiao.Cl
 
 	filtered := make([]yunxiao.WorkItem, 0, len(items))
 	for _, item := range items {
-		if item.Creator.Name == strings.TrimSpace(*creatorName) {
+		if workitemMatchesCreator(item, strings.TrimSpace(*creatorName), strings.TrimSpace(*creatorID)) {
 			filtered = append(filtered, item)
+		}
+	}
+
+	if *hydrateDetails {
+		filtered, err = hydrateWorkitems(ctx, client, org, filtered, 8)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -554,14 +563,6 @@ func runWorkitemStats(ctx context.Context, cfg config.Config, client *yunxiao.Cl
 	itemsWithDescription := 0
 	summaries := make([]map[string]any, 0, len(filtered))
 	for _, item := range filtered {
-		if *hydrateDetails {
-			detail, err := client.GetWorkitem(ctx, org, item.IDString())
-			if err != nil {
-				return fmt.Errorf("查询工作项详情失败 %s: %w", item.IDString(), err)
-			}
-			item = detail
-		}
-
 		titleCount := utf8.RuneCountInString(item.Title())
 		descriptionCount := utf8.RuneCountInString(plainWorkitemDescription(item.Description))
 		titleChars += titleCount
@@ -574,6 +575,7 @@ func runWorkitemStats(ctx context.Context, cfg config.Config, client *yunxiao.Cl
 			"serialNumber":     firstNonEmpty(item.SerialNumber, item.Identifier),
 			"title":            item.Title(),
 			"creator":          item.Creator.Name,
+			"creatorId":        item.Creator.ID,
 			"titleChars":       titleCount,
 			"descriptionChars": descriptionCount,
 			"totalChars":       titleCount + descriptionCount,
@@ -587,6 +589,7 @@ func runWorkitemStats(ctx context.Context, cfg config.Config, client *yunxiao.Cl
 	result := map[string]any{
 		"projectId":            strings.TrimSpace(*projectID),
 		"creator":              strings.TrimSpace(*creatorName),
+		"creatorId":            strings.TrimSpace(*creatorID),
 		"categories":           splitCategories(*categories),
 		"hydrateDetails":       *hydrateDetails,
 		"count":                len(filtered),
@@ -602,6 +605,7 @@ func runWorkitemStats(ctx context.Context, cfg config.Config, client *yunxiao.Cl
 
 	fmt.Printf("ProjectID: %s\n", strings.TrimSpace(*projectID))
 	fmt.Printf("Creator: %s\n", strings.TrimSpace(*creatorName))
+	fmt.Printf("CreatorID: %s\n", emptyDash(strings.TrimSpace(*creatorID)))
 	fmt.Printf("Categories: %s\n", strings.Join(splitCategories(*categories), ","))
 	fmt.Printf("HydrateDetails: %t\n", *hydrateDetails)
 	fmt.Printf("Count: %d\n", len(filtered))
@@ -1111,6 +1115,16 @@ func splitCategories(s string) []string {
 	return items
 }
 
+func workitemMatchesCreator(item yunxiao.WorkItem, creatorName, creatorID string) bool {
+	if creatorName != "" && item.Creator.Name != creatorName {
+		return false
+	}
+	if creatorID != "" && item.Creator.ID != creatorID {
+		return false
+	}
+	return creatorName != "" || creatorID != ""
+}
+
 func listProjectWorkitems(ctx context.Context, client *yunxiao.Client, orgID, projectID string, categories []string) ([]yunxiao.WorkItem, error) {
 	all := make([]yunxiao.WorkItem, 0, 256)
 	for _, category := range categories {
@@ -1137,6 +1151,66 @@ func listProjectWorkitems(ctx context.Context, client *yunxiao.Client, orgID, pr
 		}
 	}
 	return all, nil
+}
+
+func hydrateWorkitems(ctx context.Context, client *yunxiao.Client, orgID string, items []yunxiao.WorkItem, maxConcurrent int) ([]yunxiao.WorkItem, error) {
+	if len(items) == 0 || maxConcurrent <= 1 {
+		out := make([]yunxiao.WorkItem, len(items))
+		for i, item := range items {
+			detail, err := client.GetWorkitem(ctx, orgID, item.IDString())
+			if err != nil {
+				return nil, fmt.Errorf("查询工作项详情失败 %s: %w", item.IDString(), err)
+			}
+			out[i] = detail
+		}
+		return out, nil
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	out := make([]yunxiao.WorkItem, len(items))
+	sem := make(chan struct{}, maxConcurrent)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var firstErr error
+
+	for i, item := range items {
+		i := i
+		item := item
+		if ctx.Err() != nil {
+			break
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			defer func() { <-sem }()
+
+			detail, err := client.GetWorkitem(ctx, orgID, item.IDString())
+			if err != nil {
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = fmt.Errorf("查询工作项详情失败 %s: %w", item.IDString(), err)
+					cancel()
+				}
+				mu.Unlock()
+				return
+			}
+			out[i] = detail
+		}()
+	}
+
+	wg.Wait()
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	return out, nil
 }
 
 func findWorkitemBySerial(ctx context.Context, client *yunxiao.Client, orgID, projectID, serial string, categories []string) (yunxiao.WorkItem, error) {
@@ -1339,7 +1413,7 @@ func printRootUsage() {
   yx project get --id <projectId> [--org <organizationId>] [--json]
   yx workitem search --category <Req|Bug|Task> [--space-id <projectId>] [--org <organizationId>] [--conditions '{"conditionGroups":[[]]}'] [--json]
   yx workitem get (--id <workitemId> | --serial <DMRDEV-1364> --project <projectId>) [--plain-description] [--org <organizationId>] [--json]
-  yx workitem stats --project <projectId> --creator <name> [--categories Req,Bug,Task] [--hydrate-details] [--org <organizationId>] [--json]
+  yx workitem stats --project <projectId> [--creator <name>] [--creator-id <userId>] [--categories Req,Bug,Task] [--hydrate-details] [--org <organizationId>] [--json]
   yx workitem types --project <projectId> --category <Req|Bug|Task> [--org <organizationId>] [--json]
   yx workitem all-types [--categories Req,Bug,Task] [--org <organizationId>] [--json]
   yx workitem fields --project <projectId> --type <workitemTypeId> [--org <organizationId>] [--json]

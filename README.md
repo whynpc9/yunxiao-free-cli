@@ -149,6 +149,7 @@ yx workitem fields --project <projectId> --type <workitemTypeId>
 
 # 统计项目内某个创建者的工作项标题/描述字数
 yx workitem stats --project <projectId> --creator 王弘毅 --hydrate-details
+yx workitem stats --project <projectId> --creator-id <userId> --hydrate-details
 yx workitem stats --project <projectId> --creator 王弘毅 --hydrate-details --json
 ```
 

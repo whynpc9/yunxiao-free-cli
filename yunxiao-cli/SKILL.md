@@ -38,6 +38,7 @@ Use this skill when the task is about reading Yunxiao data through the local `yx
   - `yx workitem get --id <workitemId> --json`
   - `yx workitem get --serial <DMRDEV-1364> --project <projectId> --plain-description`
   - `yx workitem stats --project <projectId> --creator <name> --hydrate-details --json`
+  - `yx workitem stats --project <projectId> --creator-id <userId> --hydrate-details --json`
   - `yx workitem types --project <projectId> --category <Req|Bug|Task> --json`
   - `yx workitem all-types --categories Req,Bug,Task --json`
   - `yx workitem fields --project <projectId> --type <workitemTypeId> --json`
@@ -63,6 +64,7 @@ Do not invent non-JSON shorthand. Pass the JSON object string exactly as the CLI
 - Stay within the free-edition read-only scope unless the user explicitly asks to extend the CLI itself.
 - Use table output for quick human inspection and `--json` for anything programmatic.
 - `yx workitem search` does not include reliable rich-text descriptions; when counting description text, use `yx workitem stats --hydrate-details` or fetch each item through `yx workitem get`.
+- `yx workitem stats` supports `--creator`, `--creator-id`, or both together; prefer `--creator-id` when the organization has duplicate display names.
 - If a query fails, surface the exact command and the API error summary so the user can distinguish auth issues, permission issues, and bad IDs.
 - Runtime token precedence is `YUNXIAO_TOKEN`, then `YX_TOKEN`, then the token stored by `yx auth`.
 - If `yx` is installed but not on `PATH`, call it via its absolute path after locating it in `$HOME/.local/bin/yx`.
