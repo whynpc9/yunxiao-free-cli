@@ -73,6 +73,76 @@ type SearchWorkitemsRequest struct {
 	SpaceType  string `json:"spaceType,omitempty"`
 }
 
+type CreateWorkitemRequest struct {
+	AssignedTo        string         `json:"assignedTo"`
+	CustomFieldValues map[string]any `json:"customFieldValues,omitempty"`
+	Description       string         `json:"description,omitempty"`
+	Labels            []string       `json:"labels,omitempty"`
+	ParentID          string         `json:"parentId,omitempty"`
+	Participants      []string       `json:"participants,omitempty"`
+	SpaceID           string         `json:"spaceId"`
+	Sprint            string         `json:"sprint,omitempty"`
+	Subject           string         `json:"subject"`
+	Trackers          []string       `json:"trackers,omitempty"`
+	Verifier          string         `json:"verifier,omitempty"`
+	Versions          []string       `json:"versions,omitempty"`
+	WorkitemTypeID    string         `json:"workitemTypeId"`
+}
+
+type CreateWorkitemResponse struct {
+	ID string `json:"id"`
+}
+
+type WorkitemTimeType struct {
+	Identifier  string `json:"identifier"`
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName"`
+	Description string `json:"description"`
+	Position    int64  `json:"position"`
+}
+
+type WorkitemRecordUser struct {
+	Account     string `json:"account"`
+	Identifier  string `json:"identifier"`
+	RealName    string `json:"realName"`
+	NickName    string `json:"nickName"`
+	DisplayName string `json:"displayName"`
+	Email       string `json:"email"`
+}
+
+type WorkitemTime struct {
+	Identifier         string             `json:"identifier"`
+	WorkitemIdentifier string             `json:"workitemIdentifier"`
+	GmtStart           any                `json:"gmtStart"`
+	GmtEnd             any                `json:"gmtEnd"`
+	ActualTime         any                `json:"actualTime"`
+	SpentTime          any                `json:"spentTime"`
+	Type               string             `json:"type"`
+	Description        string             `json:"description"`
+	RecordUser         any                `json:"recordUser"`
+	RecordUserDetail   WorkitemRecordUser `json:"-"`
+	GmtCreate          any                `json:"gmtCreate"`
+	GmtModified        any                `json:"gmtModified"`
+}
+
+type CreateWorkitemRecordRequest struct {
+	WorkitemIdentifier string `json:"workitemIdentifier"`
+	ActualTime         string `json:"actualTime"`
+	Type               string `json:"type"`
+	Description        string `json:"description,omitempty"`
+	RecordUserID       string `json:"recordUserIdentifier"`
+	GmtStart           string `json:"gmtStart"`
+	GmtEnd             string `json:"gmtEnd"`
+}
+
+type CreateWorkitemEstimateRequest struct {
+	WorkitemIdentifier string `json:"workitemIdentifier"`
+	SpentTime          string `json:"spentTime"`
+	Type               string `json:"type"`
+	Description        string `json:"description,omitempty"`
+	RecordUserID       string `json:"recordUserIdentifier"`
+}
+
 type WorkItem struct {
 	ID                any        `json:"id"`
 	Identifier        string     `json:"identifier"`

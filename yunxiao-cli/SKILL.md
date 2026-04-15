@@ -37,6 +37,16 @@ Use this skill when the task is about reading Yunxiao data through the local `yx
   - `yx workitem search --category <Req|Bug|Task> --space-id <projectId> --json`
   - `yx workitem get --id <workitemId> --json`
   - `yx workitem get --serial <DMRDEV-1364> --project <projectId> --plain-description`
+  - `yx workitem children --project <projectId> --parent <parentWorkitemId> --json`
+  - `yx workitem time-types --json`
+  - `yx workitem time-list --id <workitemId> --json`
+  - `yx workitem time-create --id <workitemId> --hours <n> --type <timeTypeId> --record-user <aliyunPk> --start <time> --end <time> --description <text>`
+  - `yx workitem estimate-list --id <workitemId> --json`
+  - `yx workitem estimate-create --id <workitemId> --hours <n> --type <timeTypeId> --record-user <aliyunPk> --description <text>`
+  - `yx workitem create --project <projectId> --type <workitemTypeId> --assignee <userId> --subject <title> --description <text>`
+  - `yx workitem create --project <projectId> --type <workitemTypeId> --assignee <userId> --subject <title> --parent <parentWorkitemId>`
+  - `yx workitem update --id <workitemId> --set '{"subject":"新标题"}'`
+  - `yx workitem delete --id <workitemId> --yes`
   - `yx workitem stats --project <projectId> --creator <name> --hydrate-details --json`
   - `yx workitem stats --project <projectId> --creator-id <userId> --hydrate-details --json`
   - `yx workitem types --project <projectId> --category <Req|Bug|Task> --json`
@@ -65,6 +75,9 @@ Do not invent non-JSON shorthand. Pass the JSON object string exactly as the CLI
 - Use table output for quick human inspection and `--json` for anything programmatic.
 - `yx workitem search` does not include reliable rich-text descriptions; when counting description text, use `yx workitem stats --hydrate-details` or fetch each item through `yx workitem get`.
 - `yx workitem stats` supports `--creator`, `--creator-id`, or both together; prefer `--creator-id` when the organization has duplicate display names.
+- `yx workitem delete` is effectively a recycle operation in Yunxiao; a deleted item may still be retrievable by id with `logicalStatus=RECYCLED` even when search no longer returns it.
+- Worktime APIs use the legacy Workitem OpenAPI and require `record-user` as `aliyunPk`, not the `userId` returned by `yx org members`.
+- If a worktime command returns an HTML page instead of JSON, treat it as a domain/version mismatch for the legacy worktime API rather than a JSON parsing issue.
 - If a query fails, surface the exact command and the API error summary so the user can distinguish auth issues, permission issues, and bad IDs.
 - Runtime token precedence is `YUNXIAO_TOKEN`, then `YX_TOKEN`, then the token stored by `yx auth`.
 - If `yx` is installed but not on `PATH`, call it via its absolute path after locating it in `$HOME/.local/bin/yx`.

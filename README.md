@@ -139,6 +139,20 @@ yx workitem search --category Task --space-id <projectId> --json
 yx workitem get --id <workitemId>
 yx workitem get --id <workitemId> --json
 yx workitem get --serial DMRDEV-1364 --project <projectId> --plain-description
+yx workitem children --project <projectId> --parent <parentWorkitemId>
+
+# 创建 / 更新 / 删除工作项
+yx workitem create --project <projectId> --type <workitemTypeId> --assignee <userId> --subject "标题" --description "描述"
+yx workitem create --project <projectId> --type <workitemTypeId> --assignee <userId> --subject "子项标题" --parent <parentWorkitemId>
+yx workitem update --id <workitemId> --set '{"subject":"新标题","description":"新描述"}'
+yx workitem delete --id <workitemId> --yes
+
+# 工时
+yx workitem time-types
+yx workitem time-list --id <workitemId>
+yx workitem time-create --id <workitemId> --hours 1.5 --type <timeTypeId> --record-user <aliyunPk> --start 2026-03-27T09:00:00+08:00 --end 2026-03-27T10:30:00+08:00 --description "开发"
+yx workitem estimate-list --id <workitemId>
+yx workitem estimate-create --id <workitemId> --hours 4 --type <timeTypeId> --record-user <aliyunPk> --description "预计开发"
 
 # 查询工作项类型
 yx workitem types --project <projectId> --category Req
@@ -185,6 +199,12 @@ yx testcase fields --repo <testRepoId>
 组织可通过 `--org` 显式指定；未指定时使用默认组织。
 
 `--conditions` 和 `--extra-conditions` 需要传官方 OpenAPI 使用的 JSON 对象字符串，CLI 只做格式校验，不改写内容。
+
+说明：
+
+- `workitem delete` 对应云效删除接口，但平台实际表现是把工作项置为回收态（`logicalStatus=RECYCLED`），不是立即硬删除。
+- 工时接口使用的是云效旧版 Workitem OpenAPI；`record-user` 需要传文档要求的 `aliyunPk`，不是当前 CLI 其他命令里常见的 `userId`。
+- 如果工时命令在默认 `domain` 下返回 HTML 跳转页，通常表示当前服务接入点或账号版本不支持旧版工时 API，需要切换到支持该旧接口的 domain/版本。
 
 ## 开发
 

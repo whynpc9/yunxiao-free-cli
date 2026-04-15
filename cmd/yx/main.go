@@ -10,9 +10,11 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"text/tabwriter"
+	"time"
 	"unicode/utf8"
 
 	"github.com/wanghongyi/yunxiao-free-cli/internal/cli"
@@ -357,7 +359,7 @@ func runProjectGet(ctx context.Context, cfg config.Config, client *yunxiao.Clien
 
 func runWorkitem(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		fmt.Println("用法: yx workitem <search|get|stats|types|all-types|fields>")
+		fmt.Println("用法: yx workitem <search|get|children|create|update|delete|stats|types|all-types|fields>")
 		return nil
 	}
 	cfg, client, err := ensureReady(ctx, true)
@@ -370,6 +372,24 @@ func runWorkitem(ctx context.Context, args []string) error {
 		return runWorkitemSearch(ctx, cfg, client, args[1:])
 	case "get":
 		return runWorkitemGet(ctx, cfg, client, args[1:])
+	case "children":
+		return runWorkitemChildren(ctx, cfg, client, args[1:])
+	case "time-types":
+		return runWorkitemTimeTypes(ctx, cfg, client, args[1:])
+	case "time-list":
+		return runWorkitemTimeList(ctx, cfg, client, args[1:])
+	case "time-create":
+		return runWorkitemTimeCreate(ctx, cfg, client, args[1:])
+	case "estimate-list":
+		return runWorkitemEstimateList(ctx, cfg, client, args[1:])
+	case "estimate-create":
+		return runWorkitemEstimateCreate(ctx, cfg, client, args[1:])
+	case "create":
+		return runWorkitemCreate(ctx, cfg, client, args[1:])
+	case "update":
+		return runWorkitemUpdate(ctx, cfg, client, args[1:])
+	case "delete":
+		return runWorkitemDelete(ctx, cfg, client, args[1:])
 	case "stats":
 		return runWorkitemStats(ctx, cfg, client, args[1:])
 	case "types":
@@ -516,6 +536,320 @@ func runWorkitemGet(ctx context.Context, cfg config.Config, client *yunxiao.Clie
 	fmt.Printf("UpdatedAt: %s\n", emptyDash(valueString(item.GmtModified)))
 	fmt.Printf("DescriptionChars: %d\n", utf8.RuneCountInString(descriptionText))
 	fmt.Printf("Description: %s\n", descriptionLabel)
+	return nil
+}
+
+func runWorkitemChildren(ctx context.Context, cfg config.Config, client *yunxiao.Client, args []string) error {
+	fs := flag.NewFlagSet("workitem children", flag.ContinueOnError)
+	orgID := fs.String("org", "", "组织 ID，默认取配置中的默认组织")
+	projectID := fs.String("project", "", "项目 ID (必填)")
+	parentID := fs.String("parent", "", "父工作项 ID (必填)")
+	categories := fs.String("categories", "Req,Bug,Task", "工作项分类，逗号分隔")
+	jsonOut := fs.Bool("json", false, "JSON 输出")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*projectID) == "" {
+		return errors.New("--project 必填")
+	}
+	if strings.TrimSpace(*parentID) == "" {
+		return errors.New("--parent 必填")
+	}
+
+	org := requireOrgID(cfg, *orgID)
+	items, err := listProjectWorkitems(ctx, client, org, strings.TrimSpace(*projectID), splitCategories(*categories))
+	if err != nil {
+		return err
+	}
+
+	children := make([]yunxiao.WorkItem, 0, len(items))
+	for _, item := range items {
+		if item.ParentID == strings.TrimSpace(*parentID) {
+			children = append(children, item)
+		}
+	}
+	sort.Slice(children, func(i, j int) bool {
+		return firstNonEmpty(children[i].SerialNumber, children[i].Identifier, children[i].IDString()) <
+			firstNonEmpty(children[j].SerialNumber, children[j].Identifier, children[j].IDString())
+	})
+
+	if *jsonOut {
+		return cli.PrintJSON(children)
+	}
+
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "ID\tSERIAL\tTITLE\tTYPE\tSTATUS\tASSIGNEE\tUPDATED")
+	for _, item := range children {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			item.IDString(),
+			emptyDash(firstNonEmpty(item.SerialNumber, item.Identifier)),
+			trim(item.Title(), 40),
+			emptyDash(item.WorkitemType.Name),
+			emptyDash(item.Status.Name),
+			emptyDash(item.AssignedTo.Name),
+			emptyDash(valueString(item.GmtModified)),
+		)
+	}
+	return tw.Flush()
+}
+
+func runWorkitemTimeTypes(ctx context.Context, cfg config.Config, client *yunxiao.Client, args []string) error {
+	fs := flag.NewFlagSet("workitem time-types", flag.ContinueOnError)
+	orgID := fs.String("org", "", "组织 ID，默认取配置中的默认组织")
+	jsonOut := fs.Bool("json", false, "JSON 输出")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	org := requireOrgID(cfg, *orgID)
+	items, err := client.GetWorkitemTimeTypeList(ctx, org)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return cli.PrintJSON(items)
+	}
+
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "IDENTIFIER\tNAME\tDISPLAY_NAME\tPOSITION\tDESCRIPTION")
+	for _, item := range items {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\n",
+			emptyDash(item.Identifier),
+			emptyDash(item.Name),
+			emptyDash(item.DisplayName),
+			item.Position,
+			emptyDash(item.Description),
+		)
+	}
+	return tw.Flush()
+}
+
+func runWorkitemTimeList(ctx context.Context, cfg config.Config, client *yunxiao.Client, args []string) error {
+	fs := flag.NewFlagSet("workitem time-list", flag.ContinueOnError)
+	orgID := fs.String("org", "", "组织 ID，默认取配置中的默认组织")
+	workitemID := fs.String("id", "", "工作项 ID (必填)")
+	jsonOut := fs.Bool("json", false, "JSON 输出")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*workitemID) == "" {
+		return errors.New("--id 必填")
+	}
+
+	org := requireOrgID(cfg, *orgID)
+	items, err := client.ListWorkitemTime(ctx, org, strings.TrimSpace(*workitemID))
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return cli.PrintJSON(items)
+	}
+	return printWorkitemTimes(items, false)
+}
+
+func runWorkitemEstimateList(ctx context.Context, cfg config.Config, client *yunxiao.Client, args []string) error {
+	fs := flag.NewFlagSet("workitem estimate-list", flag.ContinueOnError)
+	orgID := fs.String("org", "", "组织 ID，默认取配置中的默认组织")
+	workitemID := fs.String("id", "", "工作项 ID (必填)")
+	jsonOut := fs.Bool("json", false, "JSON 输出")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*workitemID) == "" {
+		return errors.New("--id 必填")
+	}
+
+	org := requireOrgID(cfg, *orgID)
+	items, err := client.ListWorkitemEstimate(ctx, org, strings.TrimSpace(*workitemID))
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return cli.PrintJSON(items)
+	}
+	return printWorkitemTimes(items, true)
+}
+
+func runWorkitemTimeCreate(ctx context.Context, cfg config.Config, client *yunxiao.Client, args []string) error {
+	fs := flag.NewFlagSet("workitem time-create", flag.ContinueOnError)
+	orgID := fs.String("org", "", "组织 ID，默认取配置中的默认组织")
+	workitemID := fs.String("id", "", "工作项 ID (必填)")
+	hours := fs.String("hours", "", "实际工时，小时单位，可带小数 (必填)")
+	typeID := fs.String("type", "", "工时类型 identifier (必填)")
+	recordUser := fs.String("record-user", "", "登记人 aliyunPk (必填)")
+	start := fs.String("start", "", "开始时间，支持 Unix 毫秒或 RFC3339 (必填)")
+	end := fs.String("end", "", "结束时间，支持 Unix 毫秒或 RFC3339 (必填)")
+	description := fs.String("description", "", "工时说明")
+	jsonOut := fs.Bool("json", false, "JSON 输出")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*workitemID) == "" || strings.TrimSpace(*hours) == "" || strings.TrimSpace(*typeID) == "" || strings.TrimSpace(*recordUser) == "" || strings.TrimSpace(*start) == "" || strings.TrimSpace(*end) == "" {
+		return errors.New("--id --hours --type --record-user --start --end 必填")
+	}
+
+	startMS, err := parseTimeArg(*start)
+	if err != nil {
+		return fmt.Errorf("--start 无法解析: %w", err)
+	}
+	endMS, err := parseTimeArg(*end)
+	if err != nil {
+		return fmt.Errorf("--end 无法解析: %w", err)
+	}
+
+	org := requireOrgID(cfg, *orgID)
+	item, err := client.CreateWorkitemRecord(ctx, org, yunxiao.CreateWorkitemRecordRequest{
+		WorkitemIdentifier: strings.TrimSpace(*workitemID),
+		ActualTime:         strings.TrimSpace(*hours),
+		Type:               strings.TrimSpace(*typeID),
+		Description:        strings.TrimSpace(*description),
+		RecordUserID:       strings.TrimSpace(*recordUser),
+		GmtStart:           startMS,
+		GmtEnd:             endMS,
+	})
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return cli.PrintJSON(item)
+	}
+	return printSingleWorkitemTime(item, false)
+}
+
+func runWorkitemEstimateCreate(ctx context.Context, cfg config.Config, client *yunxiao.Client, args []string) error {
+	fs := flag.NewFlagSet("workitem estimate-create", flag.ContinueOnError)
+	orgID := fs.String("org", "", "组织 ID，默认取配置中的默认组织")
+	workitemID := fs.String("id", "", "工作项 ID (必填)")
+	hours := fs.String("hours", "", "预计工时，小时单位，可带小数 (必填)")
+	typeID := fs.String("type", "", "工时类型 identifier (必填)")
+	recordUser := fs.String("record-user", "", "登记人 aliyunPk (必填)")
+	description := fs.String("description", "", "工时说明")
+	jsonOut := fs.Bool("json", false, "JSON 输出")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*workitemID) == "" || strings.TrimSpace(*hours) == "" || strings.TrimSpace(*typeID) == "" || strings.TrimSpace(*recordUser) == "" {
+		return errors.New("--id --hours --type --record-user 必填")
+	}
+
+	org := requireOrgID(cfg, *orgID)
+	item, err := client.CreateWorkitemEstimate(ctx, org, yunxiao.CreateWorkitemEstimateRequest{
+		WorkitemIdentifier: strings.TrimSpace(*workitemID),
+		SpentTime:          strings.TrimSpace(*hours),
+		Type:               strings.TrimSpace(*typeID),
+		Description:        strings.TrimSpace(*description),
+		RecordUserID:       strings.TrimSpace(*recordUser),
+	})
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return cli.PrintJSON(item)
+	}
+	return printSingleWorkitemTime(item, true)
+}
+
+func runWorkitemCreate(ctx context.Context, cfg config.Config, client *yunxiao.Client, args []string) error {
+	fs := flag.NewFlagSet("workitem create", flag.ContinueOnError)
+	orgID := fs.String("org", "", "组织 ID，默认取配置中的默认组织")
+	projectID := fs.String("project", "", "项目 ID (必填)")
+	workitemTypeID := fs.String("type", "", "工作项类型 ID (必填)")
+	assignee := fs.String("assignee", "", "负责人 userId (必填)")
+	subject := fs.String("subject", "", "标题 (必填)")
+	description := fs.String("description", "", "描述")
+	parentID := fs.String("parent", "", "父工作项 ID，可用于创建子项")
+	jsonOut := fs.Bool("json", false, "JSON 输出")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*projectID) == "" {
+		return errors.New("--project 必填")
+	}
+	if strings.TrimSpace(*workitemTypeID) == "" {
+		return errors.New("--type 必填")
+	}
+	if strings.TrimSpace(*assignee) == "" {
+		return errors.New("--assignee 必填")
+	}
+	if strings.TrimSpace(*subject) == "" {
+		return errors.New("--subject 必填")
+	}
+
+	org := requireOrgID(cfg, *orgID)
+	resp, err := client.CreateWorkitem(ctx, org, yunxiao.CreateWorkitemRequest{
+		AssignedTo:     strings.TrimSpace(*assignee),
+		Description:    strings.TrimSpace(*description),
+		ParentID:       strings.TrimSpace(*parentID),
+		SpaceID:        strings.TrimSpace(*projectID),
+		Subject:        strings.TrimSpace(*subject),
+		WorkitemTypeID: strings.TrimSpace(*workitemTypeID),
+	})
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return cli.PrintJSON(resp)
+	}
+
+	fmt.Printf("ID: %s\n", resp.ID)
+	if item, err := client.GetWorkitem(ctx, org, resp.ID); err == nil {
+		fmt.Printf("SerialNumber: %s\n", emptyDash(firstNonEmpty(item.SerialNumber, item.Identifier)))
+		fmt.Printf("Title: %s\n", emptyDash(item.Title()))
+	}
+	return nil
+}
+
+func runWorkitemUpdate(ctx context.Context, cfg config.Config, client *yunxiao.Client, args []string) error {
+	fs := flag.NewFlagSet("workitem update", flag.ContinueOnError)
+	orgID := fs.String("org", "", "组织 ID，默认取配置中的默认组织")
+	workitemID := fs.String("id", "", "工作项 ID (必填)")
+	fieldJSON := fs.String("set", "", "要更新的字段 JSON 对象，例如 '{\"subject\":\"新标题\"}'")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*workitemID) == "" {
+		return errors.New("--id 必填")
+	}
+	if strings.TrimSpace(*fieldJSON) == "" {
+		return errors.New("--set 必填")
+	}
+
+	var fields map[string]any
+	if err := json.Unmarshal([]byte(*fieldJSON), &fields); err != nil {
+		return fmt.Errorf("--set 必须为合法 JSON 对象: %w", err)
+	}
+	if len(fields) == 0 {
+		return errors.New("--set 不能为空对象")
+	}
+
+	org := requireOrgID(cfg, *orgID)
+	if err := client.UpdateWorkitem(ctx, org, strings.TrimSpace(*workitemID), fields); err != nil {
+		return err
+	}
+	fmt.Printf("Updated: %s\n", strings.TrimSpace(*workitemID))
+	return nil
+}
+
+func runWorkitemDelete(ctx context.Context, cfg config.Config, client *yunxiao.Client, args []string) error {
+	fs := flag.NewFlagSet("workitem delete", flag.ContinueOnError)
+	orgID := fs.String("org", "", "组织 ID，默认取配置中的默认组织")
+	workitemID := fs.String("id", "", "工作项 ID (必填)")
+	yes := fs.Bool("yes", false, "确认删除")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*workitemID) == "" {
+		return errors.New("--id 必填")
+	}
+	if !*yes {
+		return errors.New("删除需要显式确认，请追加 --yes")
+	}
+
+	org := requireOrgID(cfg, *orgID)
+	if err := client.DeleteWorkitem(ctx, org, strings.TrimSpace(*workitemID)); err != nil {
+		return err
+	}
+	fmt.Printf("Deleted: %s\n", strings.TrimSpace(*workitemID))
 	return nil
 }
 
@@ -1325,6 +1659,53 @@ func joinLabelNames(items []yunxiao.LabelRef) string {
 	return strings.Join(names, ", ")
 }
 
+func parseTimeArg(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", errors.New("empty time")
+	}
+	if _, err := strconv.ParseInt(value, 10, 64); err == nil {
+		return value, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return "", err
+	}
+	return strconv.FormatInt(parsed.UnixMilli(), 10), nil
+}
+
+func printWorkitemTimes(items []yunxiao.WorkitemTime, estimate bool) error {
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	if estimate {
+		fmt.Fprintln(tw, "IDENTIFIER\tWORKITEM_ID\tSPENT_TIME\tTYPE\tRECORD_USER\tSTART\tEND\tDESCRIPTION")
+	} else {
+		fmt.Fprintln(tw, "IDENTIFIER\tWORKITEM_ID\tACTUAL_TIME\tTYPE\tRECORD_USER\tSTART\tEND\tDESCRIPTION")
+	}
+	for _, item := range items {
+		duration := valueString(item.ActualTime)
+		if estimate {
+			duration = valueString(item.SpentTime)
+		}
+		recordUser := firstNonEmpty(item.RecordUserDetail.DisplayName, item.RecordUserDetail.RealName, item.RecordUserDetail.Identifier, valueString(item.RecordUser))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			emptyDash(item.Identifier),
+			emptyDash(item.WorkitemIdentifier),
+			emptyDash(duration),
+			emptyDash(item.Type),
+			emptyDash(recordUser),
+			emptyDash(valueString(item.GmtStart)),
+			emptyDash(valueString(item.GmtEnd)),
+			emptyDash(item.Description),
+		)
+	}
+	return tw.Flush()
+}
+
+func printSingleWorkitemTime(item yunxiao.WorkitemTime, estimate bool) error {
+	items := []yunxiao.WorkitemTime{item}
+	return printWorkitemTimes(items, estimate)
+}
+
 func printWorkitemTypes(items []yunxiao.WorkItemType) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "ID\tNAME\tCATEGORY\tDEFAULT\tENABLED")
@@ -1413,6 +1794,15 @@ func printRootUsage() {
   yx project get --id <projectId> [--org <organizationId>] [--json]
   yx workitem search --category <Req|Bug|Task> [--space-id <projectId>] [--org <organizationId>] [--conditions '{"conditionGroups":[[]]}'] [--json]
   yx workitem get (--id <workitemId> | --serial <DMRDEV-1364> --project <projectId>) [--plain-description] [--org <organizationId>] [--json]
+  yx workitem children --project <projectId> --parent <workitemId> [--categories Req,Bug,Task] [--org <organizationId>] [--json]
+  yx workitem time-types [--org <organizationId>] [--json]
+  yx workitem time-list --id <workitemId> [--org <organizationId>] [--json]
+  yx workitem time-create --id <workitemId> --hours <n> --type <timeTypeId> --record-user <aliyunPk> --start <time> --end <time> [--description <text>] [--org <organizationId>] [--json]
+  yx workitem estimate-list --id <workitemId> [--org <organizationId>] [--json]
+  yx workitem estimate-create --id <workitemId> --hours <n> --type <timeTypeId> --record-user <aliyunPk> [--description <text>] [--org <organizationId>] [--json]
+  yx workitem create --project <projectId> --type <workitemTypeId> --assignee <userId> --subject <title> [--description <text>] [--parent <workitemId>] [--org <organizationId>] [--json]
+  yx workitem update --id <workitemId> --set '{"subject":"新标题"}' [--org <organizationId>]
+  yx workitem delete --id <workitemId> --yes [--org <organizationId>]
   yx workitem stats --project <projectId> [--creator <name>] [--creator-id <userId>] [--categories Req,Bug,Task] [--hydrate-details] [--org <organizationId>] [--json]
   yx workitem types --project <projectId> --category <Req|Bug|Task> [--org <organizationId>] [--json]
   yx workitem all-types [--categories Req,Bug,Task] [--org <organizationId>] [--json]

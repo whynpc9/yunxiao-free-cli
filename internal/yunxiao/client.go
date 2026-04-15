@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -83,6 +84,123 @@ func (c *Client) GetWorkitem(ctx context.Context, organizationID, workitemID str
 		return WorkItem{}, err
 	}
 	return out, nil
+}
+
+func (c *Client) CreateWorkitem(ctx context.Context, organizationID string, req CreateWorkitemRequest) (CreateWorkitemResponse, error) {
+	path := fmt.Sprintf("/oapi/v1/projex/organizations/%s/workitems", url.PathEscape(organizationID))
+	var out CreateWorkitemResponse
+	if err := c.doJSON(ctx, http.MethodPost, path, nil, req, &out); err != nil {
+		return CreateWorkitemResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) UpdateWorkitem(ctx context.Context, organizationID, workitemID string, fields map[string]any) error {
+	path := fmt.Sprintf("/oapi/v1/projex/organizations/%s/workitems/%s", url.PathEscape(organizationID), url.PathEscape(workitemID))
+	return c.doJSON(ctx, http.MethodPut, path, nil, fields, nil)
+}
+
+func (c *Client) DeleteWorkitem(ctx context.Context, organizationID, workitemID string) error {
+	path := fmt.Sprintf("/oapi/v1/projex/organizations/%s/workitems/%s", url.PathEscape(organizationID), url.PathEscape(workitemID))
+	return c.doJSON(ctx, http.MethodDelete, path, nil, nil, nil)
+}
+
+func (c *Client) GetWorkitemTimeTypeList(ctx context.Context, organizationID string) ([]WorkitemTimeType, error) {
+	var resp struct {
+		Success   bool               `json:"success"`
+		ErrorCode string             `json:"errorCode"`
+		ErrorMsg  string             `json:"errorMsg"`
+		TimeType  []WorkitemTimeType `json:"timeType"`
+	}
+	path := fmt.Sprintf("/organization/%s/workitems/type/list", url.PathEscape(organizationID))
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &resp); err != nil {
+		return nil, explainLegacyAPIError(err)
+	}
+	if !resp.Success && resp.ErrorCode != "" {
+		return nil, fmt.Errorf("legacy api failed: %s %s", resp.ErrorCode, resp.ErrorMsg)
+	}
+	return resp.TimeType, nil
+}
+
+func (c *Client) ListWorkitemTime(ctx context.Context, organizationID, workitemID string) ([]WorkitemTime, error) {
+	var resp struct {
+		Success      bool           `json:"success"`
+		ErrorCode    string         `json:"errorCode"`
+		ErrorMsg     string         `json:"errorMsg"`
+		WorkitemTime []WorkitemTime `json:"workitemTime"`
+	}
+	path := fmt.Sprintf("/organization/%s/workitems/%s/time/list", url.PathEscape(organizationID), url.PathEscape(workitemID))
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &resp); err != nil {
+		return nil, explainLegacyAPIError(err)
+	}
+	if !resp.Success && resp.ErrorCode != "" {
+		return nil, fmt.Errorf("legacy api failed: %s %s", resp.ErrorCode, resp.ErrorMsg)
+	}
+	return normalizeWorkitemTimes(resp.WorkitemTime), nil
+}
+
+func (c *Client) ListWorkitemEstimate(ctx context.Context, organizationID, workitemID string) ([]WorkitemTime, error) {
+	var resp struct {
+		Success              bool           `json:"success"`
+		ErrorCode            string         `json:"errorCode"`
+		ErrorMsg             string         `json:"errorMsg"`
+		WorkitemTimeEstimate []WorkitemTime `json:"workitemTimeEstimate"`
+	}
+	path := fmt.Sprintf("/organization/%s/workitems/%s/estimate/list", url.PathEscape(organizationID), url.PathEscape(workitemID))
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &resp); err != nil {
+		return nil, explainLegacyAPIError(err)
+	}
+	if !resp.Success && resp.ErrorCode != "" {
+		return nil, fmt.Errorf("legacy api failed: %s %s", resp.ErrorCode, resp.ErrorMsg)
+	}
+	return normalizeWorkitemTimes(resp.WorkitemTimeEstimate), nil
+}
+
+func (c *Client) CreateWorkitemRecord(ctx context.Context, organizationID string, req CreateWorkitemRecordRequest) (WorkitemTime, error) {
+	var resp struct {
+		Success      bool         `json:"success"`
+		ErrorCode    string       `json:"errorCode"`
+		ErrorMsg     string       `json:"errorMsg"`
+		WorkitemTime WorkitemTime `json:"WorkitemTime"`
+	}
+	path := fmt.Sprintf("/organization/%s/workitems/record", url.PathEscape(organizationID))
+	if err := c.doJSON(ctx, http.MethodPost, path, nil, req, &resp); err != nil {
+		return WorkitemTime{}, explainLegacyAPIError(err)
+	}
+	if !resp.Success && resp.ErrorCode != "" {
+		return WorkitemTime{}, fmt.Errorf("legacy api failed: %s %s", resp.ErrorCode, resp.ErrorMsg)
+	}
+	items := normalizeWorkitemTimes([]WorkitemTime{resp.WorkitemTime})
+	if len(items) == 0 {
+		return WorkitemTime{}, errors.New("legacy api returned empty workitem time")
+	}
+	return items[0], nil
+}
+
+func (c *Client) CreateWorkitemEstimate(ctx context.Context, organizationID string, req CreateWorkitemEstimateRequest) (WorkitemTime, error) {
+	var resp struct {
+		Success               bool         `json:"success"`
+		ErrorCode             string       `json:"errorCode"`
+		ErrorMsg              string       `json:"errorMsg"`
+		WorkitemTimeEstimate  WorkitemTime `json:"workitemTimeEstimate"`
+		WorkitemTimeEstimates WorkitemTime `json:"WorkitemTimeEstimate"`
+	}
+	path := fmt.Sprintf("/organization/%s/workitems/estimate", url.PathEscape(organizationID))
+	if err := c.doJSON(ctx, http.MethodPost, path, nil, req, &resp); err != nil {
+		return WorkitemTime{}, explainLegacyAPIError(err)
+	}
+	if !resp.Success && resp.ErrorCode != "" {
+		return WorkitemTime{}, fmt.Errorf("legacy api failed: %s %s", resp.ErrorCode, resp.ErrorMsg)
+	}
+	item := resp.WorkitemTimeEstimate
+	if item.Identifier == "" {
+		item = resp.WorkitemTimeEstimates
+	}
+	items := normalizeWorkitemTimes([]WorkitemTime{item})
+	if len(items) == 0 {
+		return WorkitemTime{}, errors.New("legacy api returned empty workitem estimate")
+	}
+	return items[0], nil
 }
 
 func (c *Client) ListAllWorkitemTypes(ctx context.Context, organizationID, categories string) ([]WorkItemType, error) {
@@ -240,4 +358,41 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 		return fmt.Errorf("parse response: %w", err)
 	}
 	return nil
+}
+
+func normalizeWorkitemTimes(items []WorkitemTime) []WorkitemTime {
+	for i := range items {
+		switch v := items[i].RecordUser.(type) {
+		case map[string]any:
+			items[i].RecordUserDetail = WorkitemRecordUser{
+				Account:     stringValue(v["account"]),
+				Identifier:  stringValue(v["identifier"]),
+				RealName:    stringValue(v["realName"]),
+				NickName:    stringValue(v["nickName"]),
+				DisplayName: stringValue(v["displayName"]),
+				Email:       stringValue(v["email"]),
+			}
+		case string:
+			items[i].RecordUserDetail = WorkitemRecordUser{Identifier: v}
+		}
+	}
+	return items
+}
+
+func stringValue(v any) string {
+	if v == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v", v)
+}
+
+func explainLegacyAPIError(err error) error {
+	if err == nil {
+		return nil
+	}
+	text := err.Error()
+	if strings.Contains(text, "invalid character '<'") || strings.Contains(text, "api-reference-standard-proprietary") {
+		return fmt.Errorf("%w; 工时接口使用云效旧版 Workitem OpenAPI，当前 domain 很可能不支持该旧接口，请核对服务接入点或账号版本", err)
+	}
+	return err
 }
